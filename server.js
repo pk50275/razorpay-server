@@ -8,7 +8,7 @@ app.use(express.json());
 
 const razorpay = new Razorpay({
   key_id:"rzp_test_SfMtidSC2jNlKv",
-  key_secret:"0602kdzog1P51R0HWvfLPmk",
+  key_secret:"J0602kdzog1P51R0HWvfLPmk",
 });
 
 app.get("/", (req, res) => {
