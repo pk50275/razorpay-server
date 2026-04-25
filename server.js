@@ -9,15 +9,31 @@ app.use(cors());
 app.use(express.json());
 
 /* =========================
-   🔐 FIREBASE INIT (SECURE)
+   🔐 FIREBASE INIT (SAFE)
 ========================= */
-const serviceAccount = require("./serviceAccountKey.json");
+let serviceAccount;
 
-admin.initializeApp({
-  credential: admin.credential.cert(serviceAccount),
-});
+try {
+  if (!process.env.FIREBASE_KEY) {
+    throw new Error("FIREBASE_KEY missing in env");
+  }
 
-const db = admin.firestore();
+  serviceAccount = JSON.parse(process.env.FIREBASE_KEY);
+
+  admin.initializeApp({
+    credential: admin.credential.cert(serviceAccount),
+  });
+
+  console.log("✅ Firebase connected");
+
+} catch (err) {
+  console.error("❌ Firebase init error:", err.message);
+}
+
+/* =========================
+   📦 FIRESTORE
+========================= */
+const db = admin.apps.length ? admin.firestore() : null;
 
 /* =========================
    💳 RAZORPAY INIT
@@ -35,18 +51,20 @@ app.get("/", (req, res) => {
 });
 
 /* =========================
-   🔥 CREATE ORDER (ULTRA SAFE)
+   🔥 CREATE ORDER
 ========================= */
 app.post("/create-order", async (req, res) => {
   try {
+    if (!db) {
+      return res.status(500).json({ error: "Firebase not initialized" });
+    }
+
     const { formId, gender, caste } = req.body;
 
-    // ✅ Basic validation
     if (!formId || !gender || !caste) {
       return res.status(400).json({ error: "Invalid request" });
     }
 
-    // 🔐 Fetch form from Firebase
     const formDoc = await db.collection("forms").doc(formId).get();
 
     if (!formDoc.exists) {
@@ -55,9 +73,7 @@ app.post("/create-order", async (req, res) => {
 
     const formData = formDoc.data();
 
-    // 🧠 SAFE fee extraction
-    const fee =
-      formData?.fees?.[gender]?.[caste];
+    const fee = formData?.fees?.[gender]?.[caste];
 
     if (fee === undefined || fee === null) {
       return res.status(400).json({ error: "Fee not defined" });
@@ -67,14 +83,11 @@ app.post("/create-order", async (req, res) => {
       return res.status(400).json({ error: "Invalid fee format" });
     }
 
-    // 💰 Create Razorpay order
-    const options = {
-      amount: fee * 100, // convert to paisa
+    const order = await razorpay.orders.create({
+      amount: fee * 100,
       currency: "INR",
       receipt: `receipt_${Date.now()}`,
-    };
-
-    const order = await razorpay.orders.create(options);
+    });
 
     return res.json({
       success: true,
@@ -84,7 +97,7 @@ app.post("/create-order", async (req, res) => {
     });
 
   } catch (err) {
-    console.error("CREATE ORDER ERROR:", err);
+    console.error("❌ CREATE ORDER ERROR:", err);
     return res.status(500).json({ error: "Order creation failed" });
   }
 });
@@ -100,7 +113,6 @@ app.post("/verify-payment", (req, res) => {
       razorpay_signature,
     } = req.body;
 
-    // 🧠 Validate input
     if (!razorpay_order_id || !razorpay_payment_id || !razorpay_signature) {
       return res.status(400).json({ error: "Invalid payment data" });
     }
@@ -122,7 +134,7 @@ app.post("/verify-payment", (req, res) => {
     }
 
   } catch (err) {
-    console.error("VERIFY ERROR:", err);
+    console.error("❌ VERIFY ERROR:", err);
     return res.status(500).json({ error: "Verification failed" });
   }
 });
