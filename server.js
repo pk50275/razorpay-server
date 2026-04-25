@@ -2,32 +2,58 @@ const express = require("express");
 const Razorpay = require("razorpay");
 const cors = require("cors");
 const crypto = require("crypto");
+const admin = require("firebase-admin");
 
 const app = express();
 app.use(cors());
 app.use(express.json());
+
+// 🔐 Firebase init
+const serviceAccount = require("./serviceAccountKey.json");
+
+admin.initializeApp({
+  credential: admin.credential.cert(serviceAccount),
+});
+
+const db = admin.firestore();
 
 const razorpay = new Razorpay({
   key_id: process.env.KEY_ID,
   key_secret: process.env.KEY_SECRET,
 });
 
-// ✅ ROOT ROUTE (FIX)
+// ✅ ROOT
 app.get("/", (req, res) => {
   res.send("Server running");
 });
 
-// 🔥 CREATE ORDER
+// 🔥 CREATE ORDER (SECURE)
 app.post("/create-order", async (req, res) => {
   try {
-    const { amount } = req.body;
+    const { formId, gender, caste } = req.body;
 
-    if (!amount) {
-      return res.status(400).json({ error: "Amount required" });
+    if (!formId || !gender || !caste) {
+      return res.status(400).json({ error: "Invalid request" });
+    }
+
+    // 🔐 Fetch form from Firebase
+    const formDoc = await db.collection("forms").doc(formId).get();
+
+    if (!formDoc.exists) {
+      return res.status(404).json({ error: "Form not found" });
+    }
+
+    const formData = formDoc.data();
+
+    const fee =
+      formData.fees?.[gender]?.[caste];
+
+    if (!fee && fee !== 0) {
+      return res.status(400).json({ error: "Fee not defined" });
     }
 
     const options = {
-      amount: amount * 100,
+      amount: fee * 100,
       currency: "INR",
       receipt: "receipt_" + Date.now(),
     };
@@ -37,6 +63,7 @@ app.post("/create-order", async (req, res) => {
     res.json({
       id: order.id,
       amount: order.amount,
+      fee: fee,
     });
 
   } catch (err) {
