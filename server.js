@@ -7,33 +7,49 @@ const app = express();
 app.use(cors());
 app.use(express.json());
 
+// 🔒 IMPORTANT: apna key yaha daal
 const razorpay = new Razorpay({
   key_id: process.env.KEY_ID,
   key_secret: process.env.KEY_SECRET,
 });
 
-app.get("/", (req, res) => {
-  res.send("Server running");
-});
-
+// 🔥 CREATE ORDER (SECURE VERSION)
 app.post("/create-order", async (req, res) => {
   try {
-    const { amount } = req.body;
+    const { formTitle, gender, caste } = req.body;
+
+    if (!formTitle || !gender || !caste) {
+      return res.status(400).json({ error: "Invalid request" });
+    }
+
+    // 🔥 TEMP FEE LOGIC (later firebase se aayega)
+    let fee = 100;
+
+    // example logic (future ready)
+    if (gender === "female") {
+      fee = 0;
+    }
 
     const options = {
-      amount: amount * 100,
+      amount: fee * 100,
       currency: "INR",
       receipt: "receipt_" + Date.now(),
     };
 
     const order = await razorpay.orders.create(options);
-    res.json(order);
+
+    res.json({
+      id: order.id,
+      amount: order.amount,
+    });
+
   } catch (err) {
     console.log(err);
-    res.status(500).send("Error creating order");
+    res.status(500).json({ error: err.message });
   }
 });
 
+// 🔒 VERIFY PAYMENT (SECURE)
 app.post("/verify-payment", (req, res) => {
   try {
     const {
@@ -50,9 +66,9 @@ app.post("/verify-payment", (req, res) => {
       .digest("hex");
 
     if (expectedSignature === razorpay_signature) {
-      res.json({ success: true });
+      return res.json({ success: true });
     } else {
-      res.status(400).json({
+      return res.status(400).json({
         success: false,
         message: "Invalid signature",
       });
