@@ -1,7 +1,38 @@
-// 🔥 ONLY CHANGE INSIDE CREATE ORDER (SAFE MATCH)
+const express = require("express");
+const Razorpay = require("razorpay");
+const cors = require("cors");
+const crypto = require("crypto");
+const admin = require("firebase-admin");
 
-const clean = (str) =>
-  str.toString().toLowerCase().replace(/[^a-z]/g, "");
+const app = express();
+app.use(cors());
+app.use(express.json());
+
+let serviceAccount;
+
+try {
+  serviceAccount = JSON.parse(process.env.FIREBASE_KEY);
+
+  admin.initializeApp({
+    credential: admin.credential.cert(serviceAccount),
+  });
+
+  console.log("Firebase connected");
+
+} catch (err) {
+  console.error("Firebase init error:", err.message);
+}
+
+const db = admin.apps.length ? admin.firestore() : null;
+
+const razorpay = new Razorpay({
+  key_id: process.env.KEY_ID,
+  key_secret: process.env.KEY_SECRET,
+});
+
+app.get("/", (req, res) => {
+  res.send("Server is running");
+});
 
 app.post("/create-order", async (req, res) => {
   try {
@@ -16,10 +47,8 @@ app.post("/create-order", async (req, res) => {
     }
 
     formId = formId.toString().trim();
-    gender = clean(gender);
-    caste = clean(caste);
-
-    console.log("🔍 Incoming:", { formId, gender, caste });
+    gender = gender.toString().toLowerCase().trim();
+    caste = caste.toString().toLowerCase().trim();
 
     const formDoc = await db.collection("forms").doc(formId).get();
 
@@ -29,29 +58,10 @@ app.post("/create-order", async (req, res) => {
 
     const formData = formDoc.data();
 
-    // 🔥 SAFE MATCH (KEY CLEANING)
-    const fees = formData.fees || {};
+    const fee = formData?.fees?.[gender]?.[caste];
 
-    const genderKey = Object.keys(fees).find(
-      (g) => clean(g) === gender
-    );
-
-    if (!genderKey) {
-      return res.status(400).json({ error: "Gender not found" });
-    }
-
-    const casteKey = Object.keys(fees[genderKey]).find(
-      (c) => clean(c) === caste
-    );
-
-    if (!casteKey) {
-      return res.status(400).json({ error: "Caste not found" });
-    }
-
-    const fee = fees[genderKey][casteKey];
-
-    if (typeof fee !== "number") {
-      return res.status(400).json({ error: "Invalid fee format" });
+    if (fee === undefined) {
+      return res.status(400).json({ error: "Fee not defined" });
     }
 
     const order = await razorpay.orders.create({
@@ -64,11 +74,43 @@ app.post("/create-order", async (req, res) => {
       success: true,
       orderId: order.id,
       amount: order.amount,
-      fee,
+      fee: fee,
     });
 
   } catch (err) {
-    console.error("❌ ERROR:", err);
+    console.error("CREATE ORDER ERROR:", err);
     return res.status(500).json({ error: "Order creation failed" });
   }
+});
+
+app.post("/verify-payment", (req, res) => {
+  try {
+    const {
+      razorpay_order_id,
+      razorpay_payment_id,
+      razorpay_signature,
+    } = req.body;
+
+    const body = razorpay_order_id + "|" + razorpay_payment_id;
+
+    const expectedSignature = crypto
+      .createHmac("sha256", process.env.KEY_SECRET)
+      .update(body)
+      .digest("hex");
+
+    if (expectedSignature === razorpay_signature) {
+      return res.json({ success: true });
+    } else {
+      return res.status(400).json({ success: false });
+    }
+
+  } catch (err) {
+    return res.status(500).json({ error: "Verification failed" });
+  }
+});
+
+const PORT = process.env.PORT || 5000;
+
+app.listen(PORT, () => {
+  console.log(`Server running on port ${PORT}`);
 });
