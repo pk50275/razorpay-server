@@ -7,31 +7,27 @@ const app = express();
 app.use(cors());
 app.use(express.json());
 
-// 🔒 IMPORTANT: apna key yaha daal
 const razorpay = new Razorpay({
   key_id: process.env.KEY_ID,
   key_secret: process.env.KEY_SECRET,
 });
 
-// 🔥 CREATE ORDER (SECURE VERSION)
+// ✅ ROOT ROUTE (FIX)
+app.get("/", (req, res) => {
+  res.send("Server running");
+});
+
+// 🔥 CREATE ORDER
 app.post("/create-order", async (req, res) => {
   try {
-    const { formTitle, gender, caste } = req.body;
+    const { amount } = req.body;
 
-    if (!formTitle || !gender || !caste) {
-      return res.status(400).json({ error: "Invalid request" });
-    }
-
-    // 🔥 TEMP FEE LOGIC (later firebase se aayega)
-    let fee = 100;
-
-    // example logic (future ready)
-    if (gender === "female") {
-      fee = 0;
+    if (!amount) {
+      return res.status(400).json({ error: "Amount required" });
     }
 
     const options = {
-      amount: fee * 100,
+      amount: amount * 100,
       currency: "INR",
       receipt: "receipt_" + Date.now(),
     };
@@ -45,11 +41,11 @@ app.post("/create-order", async (req, res) => {
 
   } catch (err) {
     console.log(err);
-    res.status(500).json({ error: err.message });
+    res.status(500).json({ error: "Order creation failed" });
   }
 });
 
-// 🔒 VERIFY PAYMENT (SECURE)
+// 🔐 VERIFY PAYMENT
 app.post("/verify-payment", (req, res) => {
   try {
     const {
@@ -73,6 +69,7 @@ app.post("/verify-payment", (req, res) => {
         message: "Invalid signature",
       });
     }
+
   } catch (err) {
     console.log(err);
     res.status(500).json({ error: "Verification failed" });
